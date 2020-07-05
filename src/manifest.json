@@ -1,0 +1,14 @@
+{
+    "fileLocations": [
+        {
+            "URIPrefixes": [
+                "https://s3.amazonaws.com/quicksight-data-<ACCOUNT_ID>/cost_and_usage/<GROUP_TYPE>/"
+            ]
+        }
+    ],
+    "globalUploadSettings": {
+        "format": "TSV",
+        "delimiter": "\t",
+        "containsHeader": "true"
+    }
+}

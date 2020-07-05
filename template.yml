@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Cost Explorer Alternative
+
+  Creates the base for the Cost Explorer Alternatove solution.
+
+Parameters: 
+  QuickSightAccount:
+    Type: String        
+  AdditionalAccounts:
+    Type: CommaDelimitedList    
+
+Resources:
+  CEAlternativeTable: 
+    Type: AWS::DynamoDB::Table
+    Description: Accounts table    
+    Properties: 
+      TableName: !Sub ${AWS::StackName}-CEAlternativeTable
+      BillingMode: PAY_PER_REQUEST      
+      AttributeDefinitions: 
+        - 
+          AttributeName: "accountid"
+          AttributeType: "S"
+      KeySchema: 
+        - 
+          AttributeName: "accountid"
+          KeyType: "HASH"
+
+  CEAlternativeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: "CEAlternativeFunction.lambda_handler"
+      Runtime: python3.7
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub ${AWS::StackName}-CEAlternativeTable
+      MemorySize: 128
+      Timeout: 600
+      Role: !GetAtt CEAlternativeFunctionRole.Arn  
+
+  CEAlternativeFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "lambda.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess        
+      Policies: 
+        - PolicyName: "root"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action: 
+                  - "dynamodb:Scan"
+                  - "dynamodb:UpdateItem"
+                  - "dynamodb:DescribeReservedCapacityOfferings"
+                  - "dynamodb:DescribeReservedCapacity"
+                  - "ce:GetCostAndUsage"
+                  - "dynamodb:DescribeLimits"
+                  - "dynamodb:ListStreams"
+                Resource: '*'
+  ScheduledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "ScheduledRule"
+      ScheduleExpression: "rate(10 minutes)"
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CEAlternativeFunction"
+              - "Arn"
+          Id: "TargetFunctionV1"
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CEAlternativeFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRule"
+          - "Arn"
+
+  FillUpDynamoDBTable:
+    Type: Custom::fillupdynamodbtable
+    Properties:
+      ServiceToken: !GetAtt FillUpDynamoDBTableFunction.Arn  
+      StackName: !Ref 'AWS::StackName'
+      TableName: !Select [1, !Split ['/', !GetAtt CEAlternativeTable.Arn]]
+      QuickSightAccount: !Ref QuickSightAccount
+      AdditionalAccounts: !Ref AdditionalAccounts
+
+  FillUpDynamoDBTableFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: "FillUpDynamoDBTableFunction.lambda_handler"
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 60
+      Policies:
+      - AWSLambdaExecute # Managed Policy
+      - Version: '2012-10-17' # Policy Document
+        Statement:
+          - Effect: Allow
+            Action:
+              - "dynamodb:PutItem"
+            Resource: !Sub '${CEAlternativeTable.Arn}'
+Outputs:
+  LambdaIAMRoleParameter:
+    Description: The ARN which you need for the stackset parameter
+    Value: !GetAtt CEAlternativeFunctionRole.Arn    
